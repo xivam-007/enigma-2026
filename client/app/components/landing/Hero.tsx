@@ -41,7 +41,7 @@ export default function Hero() {
 
           <div className="flex flex-col sm:flex-row gap-4 pt-4">
             <Link
-              href="/launch"
+              href="/incidents"
               className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-8 py-4 rounded-lg font-bold flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)]"
             >
               <ArrowRight size={20} />
