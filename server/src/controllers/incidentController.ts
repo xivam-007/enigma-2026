@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import Incident from "../models/Incident";
+import mongoose from "mongoose";
 
 
 // Create Incident
@@ -53,7 +54,17 @@ export const getAllIncidents = async (req: Request, res: Response) => {
 // Get incident by ID
 export const getIncidentById = async (req: Request, res: Response) => {
   try {
-    const incident = await Incident.findById(req.params.id);
+    const { id } = req.params;
+
+    // ✅ Check if valid Mongo ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Incident ID",
+      });
+    }
+
+    const incident = await Incident.findById(id);
 
     if (!incident) {
       return res.status(404).json({
@@ -66,11 +77,13 @@ export const getIncidentById = async (req: Request, res: Response) => {
       success: true,
       data: incident,
     });
+
   } catch (error) {
+    console.error("Error fetching incident by ID:", error);
+
     res.status(500).json({
       success: false,
-      message: "Error fetching incident",
-      error,
+      message: "Server error",
     });
   }
 };

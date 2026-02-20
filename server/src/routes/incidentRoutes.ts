@@ -13,4 +13,5 @@ router.get("/all", getAllIncidents);
 
 router.get("/:id", getIncidentById);
 
+
 export default router;
