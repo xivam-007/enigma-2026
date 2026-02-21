@@ -1,8 +1,23 @@
 "use client";
 
-import { useParams, useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
-import { incidentService, type Incident } from '@/services/incidentService';
+import { useParams, useRouter } from "next/navigation";
+import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import {
+  ArrowLeft,
+  Clock,
+  MapPin,
+  ShieldAlert,
+  Activity,
+  Maximize2,
+  Database,
+  ShieldCheck,
+  Zap,
+  Truck,
+  Siren,
+  Anchor,
+} from "lucide-react";
+import { incidentService, type Incident } from "@/services/incidentService";
 
 // --- Interfaces ---
 export interface Resource {
@@ -16,17 +31,22 @@ export interface Resource {
   updatedAt: Date;
 }
 
-type ResourceType = Resource['type'];
+type ResourceType = Resource["type"];
 
-const RESOURCE_TYPES: ResourceType[] = ["FIRE_TRUCK", "AMBULANCE", "POLICE", "BOAT", "NDRF"];
+const RESOURCE_TYPES: ResourceType[] = [
+  "FIRE_TRUCK",
+  "AMBULANCE",
+  "POLICE",
+  "BOAT",
+  "NDRF",
+];
 
-// Configuration for card visuals
-const RESOURCE_CONFIG: Record<ResourceType, { bg: string; border: string; text: string; icon: string }> = {
-  FIRE_TRUCK: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', icon: '🚒' },
-  AMBULANCE: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', icon: '🚑' },
-  POLICE: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', icon: '🚓' },
-  BOAT: { bg: 'bg-cyan-50', border: 'border-cyan-200', text: 'text-cyan-700', icon: '🚤' },
-  NDRF: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', icon: '🚁' }
+const RESOURCE_CONFIG: Record<ResourceType, { color: string; icon: any }> = {
+  FIRE_TRUCK: { color: "text-red-500", icon: Truck },
+  AMBULANCE: { color: "text-emerald-500", icon: Activity },
+  POLICE: { color: "text-blue-500", icon: Siren },
+  BOAT: { color: "text-cyan-500", icon: Anchor },
+  NDRF: { color: "text-orange-500", icon: ShieldCheck },
 };
 
 const IncidentPage = () => {
@@ -34,18 +54,14 @@ const IncidentPage = () => {
   const id = params?.id as string;
   const router = useRouter();
 
-  // --- State ---
   const [incident, setIncident] = useState<Incident | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  
-  // AI State
-  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
-
-  // Resource State
   const [resources, setResources] = useState<Resource[]>([]);
-  const [orderQuantities, setOrderQuantities] = useState<Record<ResourceType, number>>({
+  const [orderQuantities, setOrderQuantities] = useState<
+    Record<ResourceType, number>
+  >({
     FIRE_TRUCK: 0,
     AMBULANCE: 0,
     POLICE: 0,
@@ -53,349 +69,283 @@ const IncidentPage = () => {
     NDRF: 0,
   });
 
-  // --- Fetch Data ---
   useEffect(() => {
     const loadData = async () => {
       if (!id) return;
       setIsLoading(true);
-      setError(null);
-
       try {
         const response = await incidentService.getIncidentById(id);
-        if (response && response.success && response.data) {
+        if (response?.success && response.data) {
           setIncident(response.data);
         } else {
           setError("Incident not found.");
         }
 
         const resourcesResponse = await incidentService.getAllResources();
-        if (resourcesResponse && resourcesResponse.success && Array.isArray(resourcesResponse.data)) {
+        if (
+          resourcesResponse?.success &&
+          Array.isArray(resourcesResponse.data)
+        ) {
           setResources(resourcesResponse.data);
-        } else {
-          throw new Error(resourcesResponse.error || "Failed to fetch resources.");
         }
-
       } catch (err: any) {
-        console.error("Error fetching details:", err);
         setError(err.message || "An unexpected error occurred.");
       } finally {
         setIsLoading(false);
       }
     };
-
     loadData();
   }, [id]);
 
-  // --- Helpers ---
-  const getStatusColor = (status: string) => {
+  const getStatusStyle = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'open': return 'bg-red-100 text-red-800 border-red-200';
-      case 'resolved': return 'bg-green-100 text-green-800 border-green-200';
-      case 'in progress': return 'bg-blue-100 text-blue-800 border-blue-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case "active":
+        return "text-emerald-400 border-emerald-500/40 bg-emerald-500/10";
+      case "open":
+        return "text-red-500 border-red-500/30 bg-red-500/5";
+      case "resolved":
+        return "text-blue-500 border-blue-500/30 bg-blue-500/5";
+      default:
+        return "text-slate-400 border-slate-700 bg-slate-800/50";
     }
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'critical':
-      case 'high': return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'low': return 'bg-teal-100 text-teal-800 border-teal-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getAvailableCount = (type: ResourceType) => {
-    return resources.filter(r => r.type === type && r.status === "AVAILABLE").length;
-  };
-
-  const handleQuantityChange = (type: ResourceType, value: string, maxAvailable: number) => {
+  const handleQuantityChange = (
+    type: ResourceType,
+    value: string,
+    maxAvailable: number,
+  ) => {
     let parsedValue = parseInt(value, 10);
     if (isNaN(parsedValue)) parsedValue = 0;
     if (parsedValue < 0) parsedValue = 0;
     if (parsedValue > maxAvailable) parsedValue = maxAvailable;
-
-    setOrderQuantities(prev => ({ ...prev, [type]: parsedValue }));
-  };
-
-  // --- AI Integration ---
-  const handleAiRecommendation = async () => {
-    if (!incident) return;
-    setIsAiLoading(true);
-
-    try {
-      // 1. Map current available inventory to the shape the AI expects
-      const availableResources = {
-        ambulances: getAvailableCount("AMBULANCE"),
-        fire_trucks: getAvailableCount("FIRE_TRUCK"),
-        rescue_boats: getAvailableCount("BOAT"),
-        police_units: getAvailableCount("POLICE"),
-        medical_teams: getAvailableCount("NDRF"), // Mapping NDRF to medical_teams for the AI prompt
-      };
-
-      // 2. Map incident details for the AI
-      const incidentPayload = {
-        type: incident.title || "Emergency",
-        severity: incident.severity || "High",
-        location: incident.location || "Unknown Location",
-        affected_population: 1000, 
-        infrastructure_damage: "Unknown",
-        weather_forecast: "Clear"
-      };
-
-      // 3. Fetch recommendation
-      const res = await fetch("/api/ai-allocation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ incident: incidentPayload, resources: availableResources })
-      });
-
-      const data = await res.json();
-      
-      // Look for the "allocation_plan" from your prompt structure
-      const plan = data.allocation_plan || data.allocation || {};
-
-      // 4. Safely apply the recommendations (capped by max available)
-      setOrderQuantities({
-        AMBULANCE: Math.min(plan.ambulances || 0, availableResources.ambulances),
-        FIRE_TRUCK: Math.min(plan.fire_trucks || 0, availableResources.fire_trucks),
-        BOAT: Math.min(plan.rescue_boats || 0, availableResources.rescue_boats),
-        POLICE: Math.min(plan.police_units || 0, availableResources.police_units),
-        NDRF: Math.min(plan.medical_teams || 0, availableResources.medical_teams),
-      });
-
-    } catch (error) {
-      console.error("Failed to get AI recommendations:", error);
-      alert("An error occurred while fetching AI recommendations.");
-    } finally {
-      setIsAiLoading(false);
-    }
+    setOrderQuantities((prev) => ({ ...prev, [type]: parsedValue }));
   };
 
   const handlePlaceOrder = async () => {
-    if (!incident) {
-      alert("Incident details are missing. Cannot assign resources.");
-      return;
-    }
-
+    if (!incident) return;
     const resourcesToOrder: Resource[] = [];
 
-    RESOURCE_TYPES.forEach(type => {
-      const quantityRequested = orderQuantities[type];
-      
-      if (quantityRequested > 0) {
-        const availableResourcesOfType = resources.filter(r => r.type === type && r.status === "AVAILABLE");
-        const selectedForOrder = availableResourcesOfType.slice(0, quantityRequested);
-        resourcesToOrder.push(...selectedForOrder);
+    RESOURCE_TYPES.forEach((type) => {
+      const qtyRequested = orderQuantities[type];
+      if (qtyRequested > 0) {
+        const available = resources.filter(
+          (r) => r.type === type && r.status === "AVAILABLE",
+        );
+        resourcesToOrder.push(...available.slice(0, qtyRequested));
       }
     });
 
     if (resourcesToOrder.length === 0) return;
-
+    setIsSubmitting(true);
     try {
-      setIsSubmitting(true);
-      console.log(`🔥 Assigning ${resourcesToOrder.length} resources to incident \n${incident._id}...`);
-
-      const assignmentPromises = resourcesToOrder.map(resource => {
-        return incidentService.assignResourceToIncident(resource._id, incident._id);
+      await Promise.all(
+        resourcesToOrder.map((r) =>
+          incidentService.assignResourceToIncident(r._id, incident._id),
+        ),
+      );
+      setOrderQuantities({
+        FIRE_TRUCK: 0,
+        AMBULANCE: 0,
+        POLICE: 0,
+        BOAT: 0,
+        NDRF: 0,
       });
-
-      const results = await Promise.all(assignmentPromises);
-      const failedAssignments = results.filter(result => !result.success);
-      
-      if (failedAssignments.length > 0) {
-        console.error(`${failedAssignments.length} resources failed to assign.`);
-        alert(`Warning: ${failedAssignments.length} resources could not be assigned. Please check the logs.`);
-      } else {
-        console.log("✅ All resources assigned successfully!");
-        alert(`Successfully assigned ${resourcesToOrder.length} resources!`);
-        
-        setOrderQuantities({
-          FIRE_TRUCK: 0,
-          AMBULANCE: 0,
-          POLICE: 0,
-          BOAT: 0,
-          NDRF: 0,
-        });
-      }
-
+      router.back();
     } catch (error) {
-      console.error("Critical error during resource assignment:", error);
-      alert("An error occurred while assigning resources. Please try again.");
+      alert("Error assigning resources.");
     } finally {
-      router.back(); 
       setIsSubmitting(false);
     }
   };
 
-  // --- Render States ---
-  if (isLoading) {  
+  if (isLoading)
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gray-50">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="h-8 w-8 bg-blue-500 rounded-full mb-4"></div>
-          <p className="text-lg text-gray-600 font-medium">Loading incident details...</p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+        <div className="h-16 w-16 rounded-full border-t-2 border-cyan-500 animate-spin" />
+        <p className="mt-4 text-xs font-black uppercase tracking-widest text-cyan-500">
+          Establishing Data Link...
+        </p>
       </div>
     );
-  }
-
-  if (error) {  
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-red-500">
-        <div className="bg-red-50 p-6 rounded-lg border border-red-100 text-center">
-          <h2 className="text-2xl font-bold mb-2">Error Loading Incident</h2>
-          <p className="text-red-600">{error}</p>
-          <button 
-            onClick={() => router.back()}
-            className="mt-6 px-6 py-2 bg-white text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors shadow-sm font-medium"
-          >
-            &larr; Go Back
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   if (!incident) return null;
 
-  // --- Main UI ---
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-          <div>
-            <button onClick={() => router.back()} className="text-sm text-gray-500 hover:text-gray-900 mb-4 inline-flex items-center">
-              &larr; Back to Incidents
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-6 lg:p-12">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-800">
+          <div className="space-y-4">
+            <button
+              onClick={() => router.back()}
+              className="group flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-cyan-400 transition-colors"
+            >
+              <ArrowLeft
+                size={16}
+                className="group-hover:-translate-x-1 transition-transform"
+              />{" "}
+              Back to Dashboard
             </button>
-            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">{incident.title}</h1>
-            <p className="text-sm text-gray-500 mt-2 font-mono">ID: {incident._id}</p>
+            <div>
+              <h1 className="text-4xl font-black text-white uppercase tracking-tight italic">
+                {incident.title}
+              </h1>
+              <div className="flex items-center gap-4 text-[10px] font-mono text-slate-500 mt-2">
+                <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-800 underline uppercase">
+                  UID: {incident._id}
+                </span>
+                <span className="flex items-center gap-2 uppercase">
+                  <div className="h-2 w-2 rounded-full bg-cyan-500 animate-pulse" />{" "}
+                  Sensor: Verified
+                </span>
+              </div>
+            </div>
           </div>
-          
-          <div className="flex flex-wrap gap-2">
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(incident.status)}`}>
-              Status: {incident.status}
-            </span>
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getSeverityColor(incident.severity)}`}>
-              Severity: {incident.severity}
-            </span>
+          <div
+            className={`px-6 py-2 rounded-md border text-[10px] font-black uppercase tracking-widest shadow-lg ${getStatusStyle(incident.status)}`}
+          >
+            Status: {incident.status}
           </div>
         </div>
 
-        {/* Incident Content Grid */}
+        {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white shadow-sm rounded-xl p-6 border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Description</h2>
-              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{incident.description}</p>
+            {/* Briefing Box */}
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm">
+              <h2 className="text-xs font-black text-cyan-500 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <div className="w-1.5 h-4 bg-cyan-500" /> Situation Briefing
+              </h2>
+              <p className="text-slate-300 leading-relaxed font-medium">
+                {incident.description}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 pt-8 border-t border-slate-800/50">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Coordinates
+                  </span>
+                  <div className="flex items-center gap-2 text-white font-bold">
+                    <MapPin size={14} className="text-cyan-500" />{" "}
+                    {incident.location}
+                  </div>
+                </div>
+                <div className="space-y-1 text-right">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Timestamp
+                  </span>
+                  <div className="flex items-center justify-end gap-2 text-white font-mono text-xs">
+                    <Clock size={14} className="text-cyan-500" />{" "}
+                    {new Date(incident.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-white shadow-sm rounded-xl p-6 border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Details</h2>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-6">
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Location</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{incident.location}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Reported On</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{new Date(incident.createdAt).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
-                  <dd className="mt-1 text-sm text-gray-900">{new Date(incident.updatedAt).toLocaleString()}</dd>
-                </div>
-              </dl>
+            {/* Allocation Box */}
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8 backdrop-blur-sm">
+              <h2 className="text-xs font-black text-cyan-500 uppercase tracking-widest mb-8 flex items-center gap-2">
+                <div className="w-1.5 h-4 bg-cyan-500" /> Strategic Resource
+                Allocation
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {RESOURCE_TYPES.map((type) => {
+                  const availableCount = resources.filter(
+                    (r) => r.type === type && r.status === "AVAILABLE",
+                  ).length;
+                  const config = RESOURCE_CONFIG[type];
+                  const Icon = config.icon;
+                  return (
+                    <div
+                      key={type}
+                      className={`bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col items-center justify-between text-center transition-all ${orderQuantities[type] > 0 ? "border-cyan-500 shadow-[0_0_15px_rgba(34,211,238,0.1)]" : ""}`}
+                    >
+                      <Icon size={24} className={`${config.color} mb-2`} />
+                      <h3 className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-4">
+                        {type.replace("_", " ")}
+                      </h3>
+                      <div className="w-full space-y-3">
+                        <div
+                          className={`text-[10px] font-mono ${availableCount === 0 ? "text-red-500" : "text-slate-500"}`}
+                        >
+                          [{availableCount}] Available
+                        </div>
+                        <input
+                          type="number"
+                          min={0}
+                          max={availableCount}
+                          disabled={availableCount === 0}
+                          value={orderQuantities[type]}
+                          onChange={(e) =>
+                            handleQuantityChange(
+                              type,
+                              e.target.value,
+                              availableCount,
+                            )
+                          }
+                          className="w-full text-center bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-white focus:border-cyan-500 outline-none font-bold disabled:opacity-20 transition-all"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-8 flex justify-end">
+                <button
+                  onClick={handlePlaceOrder}
+                  disabled={
+                    Object.values(orderQuantities).every((qty) => qty === 0) ||
+                    isSubmitting
+                  }
+                  className="bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-black px-8 py-4 rounded-xl uppercase tracking-[0.2em] text-[10px] transition-all shadow-[0_0_20px_rgba(34,211,238,0.2)] active:scale-95"
+                >
+                  {isSubmitting
+                    ? "Transmitting Data..."
+                    : "Confirm Resource Deployment"}
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="lg:col-span-1">
-            <div className="bg-white shadow-sm rounded-xl p-4 border border-gray-200 h-full max-h-[500px] flex flex-col">
-              <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wider">Attached Image</h2>
-              <div className="relative flex-1 bg-gray-50 rounded-lg overflow-hidden border border-gray-100 flex items-center justify-center min-h-[250px]">
+          {/* Right Sidebar */}
+          <div className="lg:col-span-1 space-y-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sticky top-24 group">
+              <div className="flex justify-between items-center mb-4 px-1">
+                <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <Maximize2 size={12} /> Intel Scan
+                </h2>
+                <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              </div>
+              <div className="relative aspect-[4/5] bg-slate-950 rounded-xl overflow-hidden border border-slate-800">
                 {incident.image ? (
-                  <img src={incident.image} alt="Incident evidence" className="absolute inset-0 w-full h-full object-contain" />
+                  <img
+                    src={incident.image}
+                    alt="Visual Uplink"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-80"
+                  />
                 ) : (
-                  <div className="text-center p-6 text-gray-400 flex flex-col items-center">
-                    <span className="text-sm font-medium">No image available</span>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700 space-y-3">
+                    <ShieldAlert size={40} className="opacity-10" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      No Visual Data
+                    </span>
                   </div>
                 )}
+                <div className="absolute inset-0 pointer-events-none border-[15px] border-slate-950/20" />
+                <div className="absolute top-4 left-4 h-4 w-4 border-t-2 border-l-2 border-cyan-500/50" />
+                <div className="absolute bottom-4 right-4 h-4 w-4 border-b-2 border-r-2 border-cyan-500/50" />
+              </div>
+              <div className="mt-4 p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-lg">
+                <div className="flex justify-between items-center text-[9px] font-mono text-cyan-500 uppercase mb-1">
+                  <span>Sync Status</span> <span>Encrypted</span>
+                </div>
+                <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-cyan-500 w-[94%]" />
+                </div>
               </div>
             </div>
           </div>
         </div>
-
-        {/* --- Dispatch Resources Section --- */}
-        <div className="bg-white shadow-sm rounded-xl p-6 border border-gray-200">
-          
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-6 gap-4">
-            <h2 className="text-xl font-bold text-gray-900">Allocate Resources</h2>
-            
-            {/* AI Recommendation Button added here */}
-            <button
-              onClick={handleAiRecommendation}
-              disabled={isAiLoading || resources.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold rounded-lg shadow-sm hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-            >
-              {isAiLoading ? (
-                <>
-                  <span className="animate-spin h-4 w-4 border-2 border-indigo-700 border-t-transparent rounded-full"></span>
-                  Analyzing...
-                </>
-              ) : (
-                <>✨ AI Recommendation</>
-              )}
-            </button>
-          </div>
-          
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-            {RESOURCE_TYPES.map(type => {
-              const availableCount = getAvailableCount(type);
-              const config = RESOURCE_CONFIG[type];
-
-              return (
-                <div key={type} className={`border rounded-xl p-4 flex flex-col items-center justify-between text-center transition-all ${config.bg} ${config.border}`}>
-                  <div className="mb-3">
-                    <span className="text-4xl block mb-2">{config.icon}</span>
-                    <h3 className={`font-bold text-sm tracking-wide ${config.text}`}>
-                      {type.replace('_', ' ')}
-                    </h3>
-                  </div>
-                  
-                  <div className="w-full mt-auto">
-                    <p className={`text-xs font-semibold mb-2 ${availableCount === 0 ? 'text-red-500' : 'text-gray-600'}`}>
-                      {availableCount} Available
-                    </p>
-                    <input
-                      type="number"
-                      min="0"
-                      max={availableCount}
-                      disabled={availableCount === 0}
-                      value={orderQuantities[type]}
-                      onChange={(e) => handleQuantityChange(type, e.target.value, availableCount)}
-                      className="w-full text-center border bg-white border-gray-300 rounded-md py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-all font-bold text-black"
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex justify-end border-t pt-4">
-            <button
-              onClick={handlePlaceOrder}
-              disabled={Object.values(orderQuantities).every(qty => qty === 0) || isSubmitting}
-              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-sm hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              {isSubmitting ? 'Placing Order...' : 'Place Resource Order'}
-            </button>
-          </div>
-        </div>
-
       </div>
     </div>
   );
