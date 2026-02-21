@@ -39,6 +39,9 @@ const IncidentPage = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  
+  // AI State
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
   // Resource State
   const [resources, setResources] = useState<Resource[]>([]);
@@ -58,7 +61,6 @@ const IncidentPage = () => {
       setError(null);
 
       try {
-        // 1. Fetch Incident
         const response = await incidentService.getIncidentById(id);
         if (response && response.success && response.data) {
           setIncident(response.data);
@@ -66,7 +68,6 @@ const IncidentPage = () => {
           setError("Incident not found.");
         }
 
-        // 2. Fetch Resources (REPLACE THIS WITH YOUR ACTUAL API CALL)
         const resourcesResponse = await incidentService.getAllResources();
         if (resourcesResponse && resourcesResponse.success && Array.isArray(resourcesResponse.data)) {
           setResources(resourcesResponse.data);
@@ -105,89 +106,131 @@ const IncidentPage = () => {
     }
   };
 
+  const getAvailableCount = (type: ResourceType) => {
+    return resources.filter(r => r.type === type && r.status === "AVAILABLE").length;
+  };
+
   const handleQuantityChange = (type: ResourceType, value: string, maxAvailable: number) => {
     let parsedValue = parseInt(value, 10);
-    
-    // Handle empty input or NaN
     if (isNaN(parsedValue)) parsedValue = 0;
-    
-    // Enforce bounds (0 to maxAvailable)
     if (parsedValue < 0) parsedValue = 0;
     if (parsedValue > maxAvailable) parsedValue = maxAvailable;
 
     setOrderQuantities(prev => ({ ...prev, [type]: parsedValue }));
   };
 
-  const handlePlaceOrder = async () => {
-  if (!incident) {
-    alert("Incident details are missing. Cannot assign resources.");
-    return;
-  }
+  // --- AI Integration ---
+  const handleAiRecommendation = async () => {
+    if (!incident) return;
+    setIsAiLoading(true);
 
-  const resourcesToOrder: Resource[] = [];
+    try {
+      // 1. Map current available inventory to the shape the AI expects
+      const availableResources = {
+        ambulances: getAvailableCount("AMBULANCE"),
+        fire_trucks: getAvailableCount("FIRE_TRUCK"),
+        rescue_boats: getAvailableCount("BOAT"),
+        police_units: getAvailableCount("POLICE"),
+        medical_teams: getAvailableCount("NDRF"), // Mapping NDRF to medical_teams for the AI prompt
+      };
 
-  // 1. Gather the requested resources (same as before)
-  RESOURCE_TYPES.forEach(type => {
-    const quantityRequested = orderQuantities[type];
-    
-    if (quantityRequested > 0) {
-      const availableResourcesOfType = resources.filter(r => r.type === type && r.status === "AVAILABLE");
-      const selectedForOrder = availableResourcesOfType.slice(0, quantityRequested);
-      resourcesToOrder.push(...selectedForOrder);
-    }
-  });
+      // 2. Map incident details for the AI
+      const incidentPayload = {
+        type: incident.title || "Emergency",
+        severity: incident.severity || "High",
+        location: incident.location || "Unknown Location",
+        affected_population: 1000, 
+        infrastructure_damage: "Unknown",
+        weather_forecast: "Clear"
+      };
 
-  if (resourcesToOrder.length === 0) return;
-
-  try {
-    // Optional: Set a loading state here if you have one, e.g., setIsAssigning(true)
-    console.log(`🔥 Assigning ${resourcesToOrder.length} resources to incident \n${incident._id}...`);
-
-    // 2. Map the selected resources into an array of API call Promises
-    // Note: Make sure 'resourceService' (or whatever you named it) is imported in your file.
-    const assignmentPromises = resourcesToOrder.map(resource => {
-      console.log(`Initiating API call for resource ${resource._id} && incident ${incident._id}`);
-      return incidentService.assignResourceToIncident(resource._id, incident._id);
-    });
-
-    // 3. Execute all API calls concurrently
-    const results = await Promise.all(assignmentPromises);
-
-    // 4. Verify the results
-    const failedAssignments = results.filter(result => !result.success);
-    
-    if (failedAssignments.length > 0) {
-      console.error(`${failedAssignments.length} resources failed to assign.`);
-      alert(`Warning: ${failedAssignments.length} resources could not be assigned. Please check the logs.`);
-    } else {
-      console.log("✅ All resources assigned successfully!");
-      alert(`Successfully assigned ${resourcesToOrder.length} resources!`);
-      
-      // Reset the order quantities back to 0 after success
-      setOrderQuantities({
-        FIRE_TRUCK: 0,
-        AMBULANCE: 0,
-        POLICE: 0,
-        BOAT: 0,
-        NDRF: 0,
+      // 3. Fetch recommendation
+      const res = await fetch("/api/ai-allocation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ incident: incidentPayload, resources: availableResources })
       });
 
-      // TODO: You might want to call your fetchResources() function here 
-      // again to refresh the "Available" counts on the UI!
+      const data = await res.json();
+      
+      // Look for the "allocation_plan" from your prompt structure
+      const plan = data.allocation_plan || data.allocation || {};
+
+      // 4. Safely apply the recommendations (capped by max available)
+      setOrderQuantities({
+        AMBULANCE: Math.min(plan.ambulances || 0, availableResources.ambulances),
+        FIRE_TRUCK: Math.min(plan.fire_trucks || 0, availableResources.fire_trucks),
+        BOAT: Math.min(plan.rescue_boats || 0, availableResources.rescue_boats),
+        POLICE: Math.min(plan.police_units || 0, availableResources.police_units),
+        NDRF: Math.min(plan.medical_teams || 0, availableResources.medical_teams),
+      });
+
+    } catch (error) {
+      console.error("Failed to get AI recommendations:", error);
+      alert("An error occurred while fetching AI recommendations.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!incident) {
+      alert("Incident details are missing. Cannot assign resources.");
+      return;
     }
 
-  } catch (error) {
-    console.error("Critical error during resource assignment:", error);
-    alert("An error occurred while assigning resources. Please try again.");
-  } finally {
-    router.back(); // Refresh the page to show updated resource statuses
-    setIsLoading(false);
-    setIsSubmitting(false);
-  }
-};
+    const resourcesToOrder: Resource[] = [];
+
+    RESOURCE_TYPES.forEach(type => {
+      const quantityRequested = orderQuantities[type];
+      
+      if (quantityRequested > 0) {
+        const availableResourcesOfType = resources.filter(r => r.type === type && r.status === "AVAILABLE");
+        const selectedForOrder = availableResourcesOfType.slice(0, quantityRequested);
+        resourcesToOrder.push(...selectedForOrder);
+      }
+    });
+
+    if (resourcesToOrder.length === 0) return;
+
+    try {
+      setIsSubmitting(true);
+      console.log(`🔥 Assigning ${resourcesToOrder.length} resources to incident \n${incident._id}...`);
+
+      const assignmentPromises = resourcesToOrder.map(resource => {
+        return incidentService.assignResourceToIncident(resource._id, incident._id);
+      });
+
+      const results = await Promise.all(assignmentPromises);
+      const failedAssignments = results.filter(result => !result.success);
+      
+      if (failedAssignments.length > 0) {
+        console.error(`${failedAssignments.length} resources failed to assign.`);
+        alert(`Warning: ${failedAssignments.length} resources could not be assigned. Please check the logs.`);
+      } else {
+        console.log("✅ All resources assigned successfully!");
+        alert(`Successfully assigned ${resourcesToOrder.length} resources!`);
+        
+        setOrderQuantities({
+          FIRE_TRUCK: 0,
+          AMBULANCE: 0,
+          POLICE: 0,
+          BOAT: 0,
+          NDRF: 0,
+        });
+      }
+
+    } catch (error) {
+      console.error("Critical error during resource assignment:", error);
+      alert("An error occurred while assigning resources. Please try again.");
+    } finally {
+      router.back(); 
+      setIsSubmitting(false);
+    }
+  };
 
   // --- Render States ---
-  if (isLoading) { /* ... keep your existing loading state ... */ 
+  if (isLoading) {  
     return (
       <div className="flex justify-center items-center min-h-screen bg-gray-50">
         <div className="animate-pulse flex flex-col items-center">
@@ -198,7 +241,7 @@ const IncidentPage = () => {
     );
   }
 
-  if (error) { /* ... keep your existing error state ... */ 
+  if (error) {  
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-red-500">
         <div className="bg-red-50 p-6 rounded-lg border border-red-100 text-center">
@@ -244,7 +287,6 @@ const IncidentPage = () => {
 
         {/* Incident Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Details (Left) */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white shadow-sm rounded-xl p-6 border border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Description</h2>
@@ -270,7 +312,6 @@ const IncidentPage = () => {
             </div>
           </div>
 
-          {/* Image (Right) */}
           <div className="lg:col-span-1">
             <div className="bg-white shadow-sm rounded-xl p-4 border border-gray-200 h-full max-h-[500px] flex flex-col">
               <h2 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wider">Attached Image</h2>
@@ -287,14 +328,32 @@ const IncidentPage = () => {
           </div>
         </div>
 
-        {/* --- NEW SECTION: Dispatch Resources --- */}
+        {/* --- Dispatch Resources Section --- */}
         <div className="bg-white shadow-sm rounded-xl p-6 border border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900 mb-6 border-b pb-3">Allocate Resources</h2>
+          
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-6 gap-4">
+            <h2 className="text-xl font-bold text-gray-900">Allocate Resources</h2>
+            
+            {/* AI Recommendation Button added here */}
+            <button
+              onClick={handleAiRecommendation}
+              disabled={isAiLoading || resources.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold rounded-lg shadow-sm hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            >
+              {isAiLoading ? (
+                <>
+                  <span className="animate-spin h-4 w-4 border-2 border-indigo-700 border-t-transparent rounded-full"></span>
+                  Analyzing...
+                </>
+              ) : (
+                <>✨ AI Recommendation</>
+              )}
+            </button>
+          </div>
           
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
             {RESOURCE_TYPES.map(type => {
-              // Calculate how many of this type are available
-              const availableCount = resources.filter(r => r.type === type && r.status === "AVAILABLE").length;
+              const availableCount = getAvailableCount(type);
               const config = RESOURCE_CONFIG[type];
 
               return (
@@ -328,12 +387,12 @@ const IncidentPage = () => {
 
           <div className="flex justify-end border-t pt-4">
             <button
-  onClick={handlePlaceOrder}
-  disabled={Object.values(orderQuantities).every(qty => qty === 0) || isSubmitting}
-  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-sm hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
->
-  {isSubmitting ? 'Placing Order...' : 'Place Resource Order'}
-</button>
+              onClick={handlePlaceOrder}
+              disabled={Object.values(orderQuantities).every(qty => qty === 0) || isSubmitting}
+              className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-sm hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            >
+              {isSubmitting ? 'Placing Order...' : 'Place Resource Order'}
+            </button>
           </div>
         </div>
 
