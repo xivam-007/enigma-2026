@@ -3,7 +3,7 @@
 import React, { useState, useRef, use } from "react";
 import { Camera, AlertTriangle, Shield, Phone, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/dist/client/components/navigation";
+import { useRouter } from "next/navigation";
 
 export default function CreateIncident() {
   const router = useRouter();
